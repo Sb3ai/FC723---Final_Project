@@ -41,12 +41,12 @@ def show_menu(): # User command line interface menu to view options
     print("[2] Book a seat")
     print("[3] Free a seat")
     print("[4] Show booking status")
-    print("[5] Exit program")
+    print("[5] Find first available seat by row")
+    print("[6] Exit program")
 
 def get_seat_code():
     """
     Gets and validates a full seat code from the user.
-
     A valid seat code contains a seat number from 1 to 80
     followed by a row letter from A to F, for example 1A or 77D.
     """
@@ -186,7 +186,28 @@ def show_booking_status(seat_map): #Shows the full booking status of the aircraf
     print(f"Booked seats: {booked_count}")
     print(f"Storage spaces: {storage_count}")
 
+def find_available_seat_by_row(seat_map):
+    """
+    Finds the first available seat in a selected row.
+    This is an extra airline booking feature.
+    It helps the user quickly find a free seat without checking seats manually.
+    """
 
+    row = input("Enter preferred row (A-F): ").strip().upper()
+
+    if row not in rows:
+        print("Invalid row. Please enter a row from A to F.")
+        return
+
+    for number in seat_numbers:
+        seat_code = f"{number}{row}"
+
+        if seat_map[seat_code] == "F":
+            print(f"The first available seat in row {row} is {seat_code}.")
+            return
+
+    print(f"There are no available seats in row {row}.")
+    
 def main(): # Runs the main program
 
     seat_map = create_seat_map()
@@ -204,10 +225,12 @@ def main(): # Runs the main program
         elif choice == "4":
             show_booking_status(seat_map)
         elif choice == "5":
+            find_available_seat_by_row(seat_map)
+        elif choice == "6":
             print("Thank you for using Apache Airlines Seat Booking System.")
             break
         else:
-            print("Invalid option. Please choose a number from 1 to 5.")
+            print("Invalid option. Please choose a number from 1 to 6.")
 
 
 if __name__ == "__main__":
