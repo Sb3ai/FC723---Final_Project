@@ -5,6 +5,14 @@ Created on Tue Jun 23 17:07:12 2026
 @author: bu3li
 """
 
+# Imported libaries
+import random
+import sqlite3
+import string
+from pathlib import Path
+
+
+
 # Global variables used to build the aircraft seating map
 rows = ["A","B","C","D","E","F"]
 seat_numbers = range(1,81)
@@ -15,6 +23,32 @@ storage_seats = {
     "77F", "78F"
 } # These seats cannot be booked
 
+# The database file will be created inside the same folder as main.py
+database_path = Path(__file__).with_name("bookings.db")
+
+def create_database():
+    """
+    Creates the bookings database table if it does not already exist.
+    The table scores teh booking reference, customer details, and the seat linked to the booking.
+    """
+    
+    connection = sqlite3.connect(database_path)
+    cursor = connection.cursor()
+    
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS bookings (
+            booking_reference TEXT PRIMARY KEY,
+            passport_number TEXT NOT NULL,
+            first_name TEXT NOT NULL,
+            last_name TEXT NOT NULL,
+            seat_row TEXT NOT NULL,
+            seat_column INTEGER NOT NULL,
+            seat_code TEXT NOT NULL UNIQUE
+        )
+    """)
+    connection.commit()
+    connection.close()
+    
 def create_seat_map():
     """
     This function is to create the aircraft seating map.
@@ -33,7 +67,135 @@ def create_seat_map():
                 seat_map[seat_code] = "F"
         
     return seat_map
+
+def load_existing_bookings(seat_map):
+    # Loads the existing bookings from the database to the seat map
+    connection = sqlite3.connect(database_path)
+    cursor = connection.cursor()
     
+    cursor.execute("SELECT booking_reference, seat_code FROM bookings")
+    bookings = cursor.fetchall()
+    
+    connection.close()
+    
+    for booking_reference, seat_code in bookings:
+        if seat_code in seat_map and seat_map[seat_code] == "F":
+            seat_map[seat_code] = booking_reference
+
+def booking_reference_exists(booking_reference):
+    """
+    Checks whether a booking reference already exists in the database.
+    """
+
+    connection = sqlite3.connect(database_path)
+    cursor = connection.cursor()
+
+    cursor.execute(
+        "SELECT booking_reference FROM bookings WHERE booking_reference = ?",
+        (booking_reference,)
+    )
+
+    result = cursor.fetchone()
+    connection.close()
+
+    return result is not None
+
+
+def generate_booking_reference():
+    """
+    Generates a unique booking reference.
+
+    The algorithm uses uppercase letters and digits.
+    It creates an 8-character reference, then checks the database.
+    If the reference already exists, it generates another one.
+    """
+
+    characters = string.ascii_uppercase + string.digits
+
+    while True:
+        booking_reference = ""
+
+        for i in range(8):
+            booking_reference += random.choice(characters)
+
+        if not booking_reference_exists(booking_reference):
+            return booking_reference
+
+
+def get_customer_details():
+    """
+    Gets customer details needed for a booking.
+    """
+
+    passport_number = input("Enter passport number >> ").strip()
+    first_name = input("Enter first name >> ").strip()
+    last_name = input("Enter last name >> ").strip()
+
+    if passport_number == "" or first_name == "" or last_name == "":
+        print("Customer details cannot be empty.")
+        return None
+
+    return passport_number, first_name, last_name
+
+
+def save_booking_details(booking_reference, passport_number, first_name, last_name, seat_code):
+    """
+    Saves customer booking details into the database.
+    """
+
+    seat_row = seat_code[-1]
+    seat_column = int(seat_code[:-1])
+
+    connection = sqlite3.connect(database_path)
+    cursor = connection.cursor()
+
+    try:
+        cursor.execute("""
+            INSERT INTO bookings (
+                booking_reference,
+                passport_number,
+                first_name,
+                last_name,
+                seat_row,
+                seat_column,
+                seat_code
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (
+            booking_reference,
+            passport_number,
+            first_name,
+            last_name,
+            seat_row,
+            seat_column,
+            seat_code
+        ))
+
+        connection.commit()
+        connection.close()
+        return True
+
+    except sqlite3.IntegrityError:
+        connection.close()
+        print("This booking could not be saved because the seat or reference already exists.")
+        return False
+
+
+def delete_booking_details(booking_reference):
+    """
+    Deletes booking details from the database when a seat is freed.
+    """
+
+    connection = sqlite3.connect(database_path)
+    cursor = connection.cursor()
+
+    cursor.execute(
+        "DELETE FROM bookings WHERE booking_reference = ?",
+        (booking_reference,)
+    )
+
+    connection.commit()
+    connection.close()
 
 def show_menu(): # User command line interface menu to view options
     print("\n========== Apache Airlines Seat Booking System ==========")
@@ -79,6 +241,7 @@ def get_seat_code():
         return None
 
     return f"{seat_number}{seat_row}"
+
 def check_availability(seat_map): # Checks whether a selected seat is free or booked or unavailable.
     seat_code = get_seat_code()
     
@@ -106,14 +269,35 @@ def book_seat(seat_map):
     
     status = seat_map[seat_code]
     
-    
-    if status == "F":
-        seat_map[seat_code] = "R"
-        print(f"Seat {seat_code} has been booked successfully.")
-    elif status == "R":
-        print(f"Seat {seat_code} is already booked.")
-    elif status == "S":
+    if status == "S":
         print(f"Seat {seat_code} is a storage area and cannot be booked.")
+        return
+
+    if status != "F":
+        print(f"Seat {seat_code} is already booked.")
+        print(f"Booking reference: {status}")
+        return
+    
+    customer_details = get_customer_details()
+
+    if customer_details is None:
+        return
+    passport_number, first_name, last_name = customer_details
+    booking_reference = generate_booking_reference()
+
+    booking_saved = save_booking_details(
+        booking_reference,
+        passport_number,
+        first_name,
+        last_name,
+        seat_code
+    )
+
+    if booking_saved:
+        seat_map[seat_code] = booking_reference
+        print(f"Seat {seat_code} has been booked successfully.")
+        print(f"Booking reference: {booking_reference}")
+
 
 
 def free_seat(seat_map):
@@ -128,14 +312,17 @@ def free_seat(seat_map):
 
     status = seat_map[seat_code]
 
-    if status == "R":
-        seat_map[seat_code] = "F"
-        print(f"Seat {seat_code} has been freed successfully.")
-    elif status == "F":
-        print(f"Seat {seat_code} is already free.")
+    if status == "F":
+            print(f"Seat {seat_code} is already free.")
     elif status == "S":
         print(f"Seat {seat_code} is a storage area and cannot be freed.")
-        
+    else:
+        booking_reference = status
+        seat_map[seat_code] = "F"
+        delete_booking_details(booking_reference)
+        print(f"Seat {seat_code} has been freed successfully.")
+        print(f"Booking reference {booking_reference} was removed from the database.")
+
         
 def print_row_status(seat_map, row): # Prints one row of the aircraft in smaller sections.
 
@@ -186,6 +373,8 @@ def show_booking_status(seat_map): #Shows the full booking status of the aircraf
     print(f"Booked seats: {booked_count}")
     print(f"Storage spaces: {storage_count}")
 
+
+
 def find_available_seat_by_row(seat_map):
     """
     Finds the first available seat in a selected row.
@@ -210,8 +399,10 @@ def find_available_seat_by_row(seat_map):
     
 def main(): # Runs the main program
 
+    create_database()
     seat_map = create_seat_map()
-
+    load_existing_bookings(seat_map)
+    
     while True:
         show_menu()
         choice = input("Choose an option: ").strip()
